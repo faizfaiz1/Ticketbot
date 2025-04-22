@@ -1,5 +1,12 @@
 const { Client, IntentsBitField, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, SelectMenuBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
-const { token } = require('./config.json');
+
+let token;
+try {
+    token = process.env.DISCORD_TOKEN || require('./config.json').token;
+} catch (error) {
+    console.error('❌ لم يتم العثور على التوكن! تأكد من وجود config.json أو متغير بيئة DISCORD_TOKEN');
+    process.exit(1);
+}
 
 const client = new Client({
     intents: [
@@ -35,13 +42,12 @@ let ticketMessageId = null;
 
 client.on('ready', async () => {
     console.log(`Logged in as ${client.user.tag}`);
-    
-    // Check if ticket message exists
+
     const channel = await client.channels.fetch(TICKET_OPEN_CHANNEL);
     const messages = await channel.messages.fetch({ limit: 100 });
-    
+
     const existingMessage = messages.find(m => m.author.id === client.user.id && m.embeds.length > 0);
-    
+
     if (existingMessage) {
         ticketMessageId = existingMessage.id;
         console.log('Found existing ticket message');
@@ -61,7 +67,7 @@ async function sendTicketMessage(channel) {
         `)
         .setColor(EMBED_COLOR)
         .setFooter({ text: 'سيتم إنشاء قناة خاصة لكل تذكرة' });
-    
+
     const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId('create_ticket')
@@ -69,21 +75,20 @@ async function sendTicketMessage(channel) {
             .setStyle(ButtonStyle.Primary)
             .setEmoji('🎫')
     );
-    
+
     const message = await channel.send({ embeds: [embed], components: [row] });
     ticketMessageId = message.id;
 }
 
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton() && !interaction.isStringSelectMenu()) return;
-    
+
     if (interaction.customId === 'create_ticket') {
-        // Create ticket type selection
         const embed = new EmbedBuilder()
             .setTitle('اختر نوع التذكرة')
             .setDescription('الرجاء اختيار نوع التذكرة التي تريد فتحها')
             .setColor(EMBED_COLOR);
-        
+
         const row = new ActionRowBuilder().addComponents(
             new SelectMenuBuilder()
                 .setCustomId('select_ticket_type')
@@ -109,18 +114,17 @@ client.on('interactionCreate', async interaction => {
                     }
                 )
         );
-        
+
         await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
     }
-    
+
     if (interaction.customId === 'select_ticket_type') {
         const ticketType = interaction.values[0];
         await interaction.deferReply({ ephemeral: true });
-        
-        // Create ticket channel
+
         const category = await client.channels.fetch(CATEGORY_IDS[ticketType]);
         const guild = interaction.guild;
-        
+
         const overwrites = [
             {
                 id: guild.id,
@@ -131,23 +135,21 @@ client.on('interactionCreate', async interaction => {
                 allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
             }
         ];
-        
-        // Add support roles
+
         for (const roleId of SUPPORT_ROLES) {
             overwrites.push({
                 id: roleId,
                 allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
             });
         }
-        
+
         const ticketChannel = await guild.channels.create({
             name: `${ticketType}-${interaction.user.username}`,
             type: ChannelType.GuildText,
             parent: category.id,
             permissionOverwrites: overwrites
         });
-        
-        // Create ticket embed
+
         const ticketEmbed = new EmbedBuilder()
             .setTitle(`تذكرة ${ticketType} ${EMOJIS[ticketType]}`)
             .setDescription(`
@@ -156,8 +158,7 @@ client.on('interactionCreate', async interaction => {
             `)
             .setColor(EMBED_COLOR)
             .setFooter({ text: 'اضغط على الزر أدناه لإغلاق التذكرة' });
-        
-        // Add close button
+
         const closeButton = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId(`close_ticket_${ticketChannel.id}`)
@@ -165,27 +166,25 @@ client.on('interactionCreate', async interaction => {
                 .setStyle(ButtonStyle.Danger)
                 .setEmoji('🔒')
         );
-        
-        await ticketChannel.send({ 
+
+        await ticketChannel.send({
             content: `${interaction.user} ${SUPPORT_ROLES.map(r => `<@&${r}>`).join(' ')}`,
-            embeds: [ticketEmbed], 
-            components: [closeButton] 
+            embeds: [ticketEmbed],
+            components: [closeButton]
         });
-        
-        // Send confirmation to user
+
         const userEmbed = new EmbedBuilder()
             .setTitle(`تم إنشاء تذكرة ${ticketType} ${EMOJIS[ticketType]}`)
             .setDescription(`تم إنشاء التذكرة في ${ticketChannel}`)
             .setColor(EMBED_COLOR);
-        
+
         await interaction.followUp({ embeds: [userEmbed], ephemeral: true });
     }
-    
+
     if (interaction.customId.startsWith('close_ticket_')) {
         const channelId = interaction.customId.replace('close_ticket_', '');
         const channel = await client.channels.fetch(channelId);
-        
-        // إزالة شرط التحقق من أن المستخدم هو من فتح التذكرة
+
         await interaction.reply({ content: 'جارٍ إغلاق التذكرة...', ephemeral: true });
         await channel.delete();
     }
